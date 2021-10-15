@@ -1,3 +1,5 @@
+import dataclasses
+import os
 from pathlib import Path
 from typing import BinaryIO, Optional, Tuple, Union, List
 
@@ -7,6 +9,7 @@ import torch
 
 SF_AUDIO_FILE_EXTENSIONS = {".wav", ".flac", ".ogg"}
 FEATURE_OR_SF_AUDIO_FILE_EXTENSIONS = {".npy", ".wav", ".flac", ".ogg"}
+ZIP_FILE_EXTENSIONS = {".zip"}
 
 
 def update_sample_rate(
@@ -130,12 +133,12 @@ def _get_torchaudio_fbank(
         return None
 
 
-def get_fbank(path_or_fp: Union[str, BinaryIO], n_bins=80) -> np.ndarray:
+def get_fbank(path_or_fp: Union[str, BinaryIO], n_bins=80, start=0, frames=-1) -> np.ndarray:
     """Get mel-filter bank features via PyKaldi or TorchAudio. Prefer PyKaldi
     (faster CPP implementation) to TorchAudio (Python implementation). Note that
     Kaldi/TorchAudio requires 16-bit signed integers as inputs and hence the
     waveform should not be normalized."""
-    waveform, sample_rate = get_waveform(path_or_fp, normalization=False)
+    waveform, sample_rate = get_waveform(path_or_fp, normalization=False, start=start, frames=frames)
 
     features = _get_kaldi_fbank(waveform, sample_rate, n_bins)
     if features is None:
@@ -167,7 +170,20 @@ def read_from_stored_zip(zip_path: str, offset: int, file_size: int) -> bytes:
     return data
 
 
-def parse_path(path: str) -> Tuple[str, List[int]]:
+@dataclasses.dataclass
+class ParsedPath:
+    path: str
+    zip_offset: int = 0
+    zip_length: int = -1
+    start: int = 0
+    frames: int = -1
+    is_zip: bool = False
+
+    def __post_init__(self):
+        self.is_zip = Path(self.path).suffix in ZIP_FILE_EXTENSIONS
+
+
+def parse_path(path: str) -> ParsedPath:
     """Parse data path which is either a path to
     1. a .npy/.wav/.flac/.ogg file
     2. a stored ZIP file with slicing info: "[zip_path]:[offset]:[length]"
@@ -181,12 +197,17 @@ def parse_path(path: str) -> Tuple[str, List[int]]:
             byte offset and length for the slice in case 2
     """
 
-    if Path(path).suffix in FEATURE_OR_SF_AUDIO_FILE_EXTENSIONS:
-        _path, slice_ptr = path, []
-    else:
-        _path, *slice_ptr = path.split(":")
-        if not Path(_path).is_file():
+    _path, *slice_ptr = path.split(":")
+    parsed_path = ParsedPath(_path)
+
+    if parsed_path.is_zip:
+        if not os.path.isfile(_path):
             raise FileNotFoundError(f"File not found: {_path}")
-    assert len(slice_ptr) in {0, 2}, f"Invalid path: {path}"
-    slice_ptr = [int(i) for i in slice_ptr]
-    return _path, slice_ptr
+        if len(slice_ptr) == 2:
+            parsed_path = dataclasses.replace(parsed_path, zip_offset=int(slice_ptr[0]), zip_length=int(slice_ptr[1]))
+        else:
+            assert len(slice_ptr) in {0, 2}, f"Invalid path: {path}"
+    else:
+        if len(slice_ptr) == 2:
+            parsed_path = dataclasses.replace(parsed_path, start=int(slice_ptr[0]), frames=int(slice_ptr[1]))
+    return parsed_path

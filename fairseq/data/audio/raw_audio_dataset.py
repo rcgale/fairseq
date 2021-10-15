@@ -311,14 +311,15 @@ class FileAudioDataset(RawAudioDataset):
         fn = self.fnames[index]
         fn = fn if isinstance(self.fnames, list) else fn.as_py()
         fn = self.text_compressor.decompress(fn)
-        path_or_fp = os.path.join(self.root_dir, fn)
-        _path, slice_ptr = parse_path(path_or_fp)
-        if len(slice_ptr) == 2:
-            byte_data = read_from_stored_zip(_path, slice_ptr[0], slice_ptr[1])
+        parsed = parse_path(os.path.join(self.root_dir, fn))
+        path_or_fp = parsed.path
+
+        if parsed.is_zip:
+            byte_data = read_from_stored_zip(parsed.path, parsed.zip_offset, parsed.zip_length)
             assert is_sf_audio_data(byte_data)
             path_or_fp = io.BytesIO(byte_data)
 
-        wav, curr_sample_rate = sf.read(path_or_fp, dtype="float32")
+        wav, curr_sample_rate = sf.read(path_or_fp, frames=parsed.frames, start=parsed.start, dtype="float32")
 
         feats = torch.from_numpy(wav).float()
         feats = self.postprocess(feats, curr_sample_rate)
