@@ -316,10 +316,15 @@ class FileAudioDataset(RawAudioDataset):
 
         if parsed.is_zip:
             byte_data = read_from_stored_zip(parsed.path, parsed.zip_offset, parsed.zip_length)
-            assert is_sf_audio_data(byte_data)
+            assert is_sf_audio_data(byte_data), f"{fn} did not contain valid audio data"
             path_or_fp = io.BytesIO(byte_data)
 
-        wav, curr_sample_rate = sf.read(path_or_fp, frames=parsed.frames, start=parsed.start, dtype="float32")
+        wav, curr_sample_rate = sf.read(path_or_fp, frames=parsed.frames, start=parsed.start, dtype="float32", always_2d=True)
+
+        if parsed.frames:
+            assert parsed.frames == wav.shape[0], \
+                f"Reading {path_or_fp} from frame {parsed.start}. " \
+                f"Requested {parsed.frames} frames, got {wav.shape[0]} instead."
 
         feats = torch.from_numpy(wav).float()
         feats = self.postprocess(feats, curr_sample_rate)
