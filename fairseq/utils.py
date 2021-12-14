@@ -85,7 +85,9 @@ def apply_to_sample(f, sample):
             return f(x)
         elif isinstance(x, collections.OrderedDict):
             # OrderedDict has attributes that needs to be preserved
-            od = collections.OrderedDict((key, _apply(value)) for key, value in x.items())
+            od = collections.OrderedDict(
+                (key, _apply(value)) for key, value in x.items()
+            )
             od.__dict__ = x.__dict__
             return od
         elif isinstance(x, dict):
@@ -537,12 +539,18 @@ def deprecation_warning(message, stacklevel=3):
     warnings.warn(message, stacklevel=stacklevel)
 
 
+def relu_squared(x: torch.Tensor):
+    return F.relu(x).pow(2)
+
+
 def get_activation_fn(activation: str) -> Callable:
     """Returns the activation function corresponding to `activation`"""
     from fairseq.modules import gelu, gelu_accurate
 
     if activation == "relu":
         return F.relu
+    elif activation == "relu_squared":
+        return relu_squared
     elif activation == "gelu":
         return gelu
     elif activation == "gelu_fast":
